@@ -1,0 +1,6 @@
+@AutoInventoryBackend_HostAddress = http://localhost:5123
+
+GET {{AutoInventoryBackend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

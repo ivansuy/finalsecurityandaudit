@@ -1,0 +1,24 @@
+# --- Visual Studio / .NET ---
+.vs/
+*.user
+*.suo
+[Bb]in/
+[Oo]bj/
+*.log
+*.nupkg
+project.lock.json
+
+# --- Node / React ---
+node_modules/
+dist/
+build/
+.cache/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+yarn.lock
+
+# --- OS ---
+.DS_Store
+Thumbs.db

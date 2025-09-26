@@ -1,0 +1,173 @@
+﻿@model Frontend.Models.DashboardSummary
+@using System.Text.Json
+
+@{
+    ViewData["Title"] = "Dashboard de Auditoría";
+
+    var success = Model?.AuthSuccess ?? 0;
+    var failed = Model?.AuthFailed ?? 0;
+    var total = success + failed;
+    var rate = total > 0 ? (decimal)success * 100m / total : 0m;
+
+    // === Datos para los charts ===
+    // OJO: si tu tipo NO se llama EndpointStat, cambia solo el nombre del tipo aquí abajo.
+    var eps = Model?.TopEndpoints ?? new List<Frontend.Models.EndpointStat>();
+    var labels = eps.Select(x => x.Endpoint).ToList();
+    var counts = eps.Select(x => x.Count).ToList();
+
+    var labelsJson = JsonSerializer.Serialize(labels);
+    var countsJson = JsonSerializer.Serialize(counts);
+}
+
+<h2 class="mt-2 mb-3">@ViewData["Title"]</h2>
+
+@if (Model == null)
+{
+    <div class="alert alert-light border">No hay datos disponibles.</div>
+}
+else
+{
+    <div class="row g-3 mb-3">
+        <div class="col-12 col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Ventana</div>
+                    <div class="h4 mb-0">@Model.WindowHours h</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Logins exitosos</div>
+                    <div class="h4 mb-0">@success</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Logins fallidos</div>
+                    <div class="h4 mb-0">@failed</div>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-md-3">
+            <div class="card shadow-sm h-100">
+                <div class="card-body">
+                    <div class="text-muted small">Tasa de éxito</div>
+                    <div class="h4 mb-0">@rate.ToString("0.0")%</div>
+                    <div class="progress mt-2" style="height:6px;">
+                        <div class="progress-bar" role="progressbar" style="width:@rate.ToString("0.##")%;"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts -->
+    <div class="row g-3 mb-4">
+        <div class="col-12 col-lg-4">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white">
+                    <strong>Autenticación (últimas @Model.WindowHours h)</strong>
+                </div>
+                <div class="card-body">
+                    <canvas id="authDoughnut" height="220"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="col-12 col-lg-8">
+            <div class="card shadow-sm h-100">
+                <div class="card-header bg-white">
+                    <strong>Endpoints más usados</strong>
+                </div>
+                <div class="card-body">
+                    <canvas id="endpointsBar" height="220"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla de detalle -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-white">
+            <strong>Detalle de endpoints</strong>
+        </div>
+        <div class="card-body p-0">
+            <table class="table table-striped mb-0">
+                <thead class="table-dark">
+                    <tr>
+                        <th>Endpoint</th>
+                        <th class="text-end">Cantidad</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @if (eps.Any())
+                    {
+                        foreach (var e in eps)
+                        {
+                            <tr>
+                                <td>@e.Endpoint</td>
+                                <td class="text-end">@e.Count</td>
+                            </tr>
+                        }
+                    }
+                    else
+                    {
+                        <tr>
+                            <td colspan="2" class="text-center text-muted py-4">No hay endpoints registrados.</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+<!-- Chart.js por CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+    (function () {
+        const success = @success;
+        const failed  = @failed;
+        const labels  = @Html.Raw(labelsJson);
+        const counts  = @Html.Raw(countsJson);
+
+        const ctx1 = document.getElementById('authDoughnut');
+        if (ctx1) {
+            new Chart(ctx1, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Exitosos', 'Fallidos'],
+                    datasets: [{ data: [success, failed] }]
+                },
+                options: {
+                    responsive: true,
+                    plugins: { legend: { position: 'bottom' } },
+                    cutout: '60%'
+                }
+            });
+        }
+
+        const ctx2 = document.getElementById('endpointsBar');
+        if (ctx2) {
+            new Chart(ctx2, {
+                type: 'bar',
+                data: {
+                    labels: labels,
+                    datasets: [{ label: 'Requests', data: counts }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } },
+                        y: { beginAtZero: true, ticks: { precision: 0 } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+    })();
+</script>

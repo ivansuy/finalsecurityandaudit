@@ -1,0 +1,84 @@
+﻿@model List<Frontend.Models.Vehicle>
+
+@{
+    ViewData["Title"] = "Gestión de Vehículos";
+}
+
+<h2>Gestión de Vehículos</h2>
+
+<table class="table table-bordered">
+    <thead class="table-dark">
+        <tr>
+            <th>Id</th>
+            <th>Marca</th>
+            <th>Modelo</th>
+            <th>Año</th>
+            <th>Precio</th>
+            <th>Acciones</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (var v in Model)
+        {
+            <tr>
+                <td>@v.Id</td>
+                <td>@v.Brand</td>
+                <td>@v.Model</td>
+                <td>@v.Year</td>
+                <td>@v.Price.ToString("N2")</td>
+                <td>
+                    <!-- Botón que abre el modal -->
+                    <button class="btn btn-sm btn-primary" data-bs-toggle="modal" data-bs-target="#editModal@(v.Id)">
+                        Editar
+                    </button>
+                    <form asp-action="Delete" asp-controller="Vehicles" method="post" style="display:inline;">
+                        <input type="hidden" name="id" value="@v.Id" />
+                        <button type="submit" class="btn btn-sm btn-danger">Eliminar</button>
+                    </form>
+                </td>
+            </tr>
+
+            <!-- Modal Editar (por cada vehículo) -->
+            <div class="modal fade" id="editModal@(v.Id)" tabindex="-1" aria-hidden="true">
+                <div class="modal-dialog">
+                    <div class="modal-content">
+                        <div class="modal-header bg-primary text-white">
+                            <h5 class="modal-title">Editar Vehículo (@v.Brand - @v.Model)</h5>
+                            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button>
+                        </div>
+                        <div class="modal-body">
+                            <form asp-action="Edit" asp-controller="Vehicles" method="post">
+                                <input type="hidden" name="id" value="@v.Id" />
+
+                                <div class="mb-3">
+                                    <label>Marca</label>
+                                    <input type="text" name="brand" value="@v.Brand" class="form-control" required />
+                                </div>
+
+                                <div class="mb-3">
+                                    <label>Modelo</label>
+                                    <input type="text" name="model" value="@v.Model" class="form-control" required />
+                                </div>
+
+                                <div class="mb-3">
+                                    <label>Año</label>
+                                    <input type="number" name="year" value="@v.Year" class="form-control" required />
+                                </div>
+
+                                <div class="mb-3">
+                                    <label>Precio</label>
+                                    <input type="number" step="0.01" name="price" value="@v.Price" class="form-control" required />
+                                </div>
+
+                                <div class="modal-footer">
+                                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                                    <button type="submit" class="btn btn-success">Guardar cambios</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </tbody>
+</table>

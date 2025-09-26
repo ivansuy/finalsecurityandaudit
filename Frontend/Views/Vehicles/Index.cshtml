@@ -1,0 +1,40 @@
+﻿@model List<Frontend.Models.Vehicle>
+
+@{
+    ViewData["Title"] = "Catálogo de Vehículos";
+}
+
+<h2 class="mt-4">@ViewData["Title"]</h2>
+
+<table class="table table-striped table-hover mt-3">
+    <thead class="table-dark">
+        <tr>
+            <th>Id</th>
+            <th>Marca</th>
+            <th>Modelo</th>
+            <th>Año</th>
+            <th>Precio (Q)</th>
+        </tr>
+    </thead>
+    <tbody>
+        @if (Model != null && Model.Any())
+        {
+            foreach (var v in Model)
+            {
+                <tr>
+                    <td>@v.Id</td>
+                    <td>@v.Brand</td>
+                    <td>@v.Model</td>
+                    <td>@v.Year</td>
+                    <td>@string.Format("{0:N2}", v.Price)</td>
+                </tr>
+            }
+        }
+        else
+        {
+            <tr>
+                <td colspan="5" class="text-center text-muted">No hay vehículos disponibles.</td>
+            </tr>
+        }
+    </tbody>
+</table>
