@@ -1,146 +1,393 @@
-﻿@model Frontend.Models.DashboardSummary
+@model Frontend.Models.DashboardViewModel
 @using System.Text.Json
+@using System.Linq
 
 @{
     ViewData["Title"] = "Dashboard de Auditoría";
 
-    var success = Model?.AuthSuccess ?? 0;
-    var failed = Model?.AuthFailed ?? 0;
+    var summary = Model?.Summary;
+    var detection = Model?.Detection;
+
+    var success = summary?.AuthSuccess ?? 0;
+    var failed = summary?.AuthFailed ?? 0;
     var total = success + failed;
     var rate = total > 0 ? (decimal)success * 100m / total : 0m;
 
-    // === Datos para los charts ===
-    // OJO: si tu tipo NO se llama EndpointStat, cambia solo el nombre del tipo aquí abajo.
-    var eps = Model?.TopEndpoints ?? new List<Frontend.Models.EndpointStat>();
-    var labels = eps.Select(x => x.Endpoint).ToList();
-    var counts = eps.Select(x => x.Count).ToList();
+    var endpoints = summary?.TopEndpoints ?? new List<Frontend.Models.EndpointStat>();
+    var endpointLabelsJson = JsonSerializer.Serialize(endpoints.Select(x => x.Endpoint).ToList());
+    var endpointCountsJson = JsonSerializer.Serialize(endpoints.Select(x => x.Count).ToList());
 
-    var labelsJson = JsonSerializer.Serialize(labels);
-    var countsJson = JsonSerializer.Serialize(counts);
+    var suspicious = detection?.TopSuspiciousIps ?? new List<Frontend.Models.SuspiciousIpSummary>();
+    var suspiciousLabelsJson = JsonSerializer.Serialize(suspicious.Select(x => x.IpAddress).ToList());
+    var suspiciousScoresJson = JsonSerializer.Serialize(suspicious.Select(x => Math.Round(x.LastScore, 3)).ToList());
+
+    var detectionSummary = detection?.Summary;
+    var latestByIp = detection?.LatestByIp?.OrderByDescending(x => x.Score).Take(25).ToList() ?? new List<Frontend.Models.MlDetectionResult>();
+    var recentDetections = detection?.RecentDetections?.OrderByDescending(x => x.DetectedAtUtc).Take(25).ToList() ?? new List<Frontend.Models.MlDetectionResult>();
+    var detectionAvgRequests = latestByIp.Any() ? latestByIp.Average(x => x.RequestCount) : 0;
+    var detectionAvgErrorRate = latestByIp.Any() ? latestByIp.Average(x => x.ErrorRate) : 0;
+    var detectionAvgScore = latestByIp.Any() ? latestByIp.Average(x => x.Score) : 0;
 }
 
 <h2 class="mt-2 mb-3">@ViewData["Title"]</h2>
 
-@if (Model == null)
+@if (summary == null && detection == null)
 {
     <div class="alert alert-light border">No hay datos disponibles.</div>
 }
 else
 {
-    <div class="row g-3 mb-3">
-        <div class="col-12 col-md-3">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Ventana</div>
-                    <div class="h4 mb-0">@Model.WindowHours h</div>
+    if (summary == null)
+    {
+        <div class="alert alert-warning">No se pudieron cargar las métricas tradicionales del dashboard.</div>
+    }
+    else
+    {
+        <div class="row g-3 mb-3">
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Ventana</div>
+                        <div class="h4 mb-0">@summary.WindowHours h</div>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="col-12 col-md-3">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Logins exitosos</div>
-                    <div class="h4 mb-0">@success</div>
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Logins exitosos</div>
+                        <div class="h4 mb-0">@success</div>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="col-12 col-md-3">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Logins fallidos</div>
-                    <div class="h4 mb-0">@failed</div>
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Logins fallidos</div>
+                        <div class="h4 mb-0">@failed</div>
+                    </div>
                 </div>
             </div>
-        </div>
-        <div class="col-12 col-md-3">
-            <div class="card shadow-sm h-100">
-                <div class="card-body">
-                    <div class="text-muted small">Tasa de éxito</div>
-                    <div class="h4 mb-0">@rate.ToString("0.0")%</div>
-                    <div class="progress mt-2" style="height:6px;">
-                        <div class="progress-bar" role="progressbar" style="width:@rate.ToString("0.##")%;"></div>
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Tasa de éxito</div>
+                        <div class="h4 mb-0">@rate.ToString("0.0")%</div>
+                        <div class="progress mt-2" style="height:6px;">
+                            <div class="progress-bar" role="progressbar" style="width:@rate.ToString("0.##")%;"></div>
+                        </div>
                     </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- Charts -->
-    <div class="row g-3 mb-4">
-        <div class="col-12 col-lg-4">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-white">
-                    <strong>Autenticación (últimas @Model.WindowHours h)</strong>
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-lg-4">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-white">
+                        <strong>Autenticación (últimas @summary.WindowHours h)</strong>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="authDoughnut" height="220"></canvas>
+                    </div>
                 </div>
-                <div class="card-body">
-                    <canvas id="authDoughnut" height="220"></canvas>
+            </div>
+            <div class="col-12 col-lg-8">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-white">
+                        <strong>Endpoints más usados</strong>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="endpointsBar" height="220"></canvas>
+                    </div>
                 </div>
             </div>
         </div>
-        <div class="col-12 col-lg-8">
-            <div class="card shadow-sm h-100">
-                <div class="card-header bg-white">
-                    <strong>Endpoints más usados</strong>
-                </div>
-                <div class="card-body">
-                    <canvas id="endpointsBar" height="220"></canvas>
-                </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- Tabla de detalle -->
-    <div class="card shadow-sm">
-        <div class="card-header bg-white">
-            <strong>Detalle de endpoints</strong>
-        </div>
-        <div class="card-body p-0">
-            <table class="table table-striped mb-0">
-                <thead class="table-dark">
-                    <tr>
-                        <th>Endpoint</th>
-                        <th class="text-end">Cantidad</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    @if (eps.Any())
-                    {
-                        foreach (var e in eps)
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white">
+                <strong>Detalle de endpoints</strong>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-striped mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Endpoint</th>
+                            <th class="text-end">Cantidad</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (endpoints.Any())
+                        {
+                            foreach (var endpoint in endpoints)
+                            {
+                                <tr>
+                                    <td>@endpoint.Endpoint</td>
+                                    <td class="text-end">@endpoint.Count</td>
+                                </tr>
+                            }
+                        }
+                        else
                         {
                             <tr>
-                                <td>@e.Endpoint</td>
-                                <td class="text-end">@e.Count</td>
+                                <td colspan="2" class="text-center text-muted py-4">No hay endpoints registrados.</td>
                             </tr>
                         }
-                    }
-                    else
-                    {
-                        <tr>
-                            <td colspan="2" class="text-center text-muted py-4">No hay endpoints registrados.</td>
-                        </tr>
-                    }
-                </tbody>
-            </table>
+                    </tbody>
+                </table>
+            </div>
         </div>
-    </div>
+    }
+
+    <hr class="my-4" />
+    <h3 class="mb-3">Detección de anomalías (Isolation Forest)</h3>
+
+    if (detection == null)
+    {
+        <div class="alert alert-light border">Todavía no hay resultados de detección ML disponibles.</div>
+    }
+    else
+    {
+        var anomalyRatePercent = detectionSummary != null ? detectionSummary.AnomalyRate * 100 : 0;
+        var anomalyRateText = anomalyRatePercent.ToString("0.0");
+
+        <div class="row g-3 mb-3">
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Evaluaciones analizadas</div>
+                        <div class="h4 mb-0">@(detectionSummary?.TotalEvaluations ?? 0)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Anomalías detectadas</div>
+                        <div class="h4 mb-0">@(detectionSummary?.TotalAnomalies ?? 0)</div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Tasa de anomalía</div>
+                        <div class="h4 mb-0">@anomalyRateText% </div>
+                        <div class="progress mt-2" style="height:6px;">
+                            <div class="progress-bar bg-danger" role="progressbar" style="width:@anomalyRatePercent.ToString("0.##")%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-md-3">
+                <div class="card shadow-sm h-100">
+                    <div class="card-body">
+                        <div class="text-muted small">Umbral / Ventana</div>
+                        <div class="h4 mb-0">@(detection.Threshold.ToString("0.00")) / @(detection.WindowMinutes) min</div>
+                        <div class="text-muted small">Actualizado: @detection.GeneratedAtUtc.ToLocalTime().ToString("g")</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-white">
+                        <strong>Top 10 IPs sospechosas</strong>
+                    </div>
+                    <div class="card-body">
+                        <canvas id="suspiciousBar" height="220"></canvas>
+                        <p class="text-muted small mt-3 mb-0">El score se normaliza entre 0 y 1. Valores más altos indican mayor probabilidad de anomalía.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="col-12 col-lg-6">
+                <div class="card shadow-sm h-100">
+                    <div class="card-header bg-white">
+                        <strong>Resumen de métricas ML</strong>
+                    </div>
+                    <div class="card-body">
+                        <dl class="row mb-0">
+                            <dt class="col-sm-7">Promedio solicitudes por IP</dt>
+                            <dd class="col-sm-5 text-sm-end">@detectionAvgRequests.ToString("0.0")</dd>
+                            <dt class="col-sm-7">Promedio tasa de error</dt>
+                            <dd class="col-sm-5 text-sm-end">@(detectionAvgErrorRate * 100).ToString("0.0")%</dd>
+                            <dt class="col-sm-7">Score promedio más reciente</dt>
+                            <dd class="col-sm-5 text-sm-end">@detectionAvgScore.ToString("0.000")</dd>
+                            <dt class="col-sm-7">IPs monitoreadas</dt>
+                            <dd class="col-sm-5 text-sm-end">@(detectionSummary?.UniqueIpCount ?? 0)</dd>
+                            <dt class="col-sm-7">Ventana de evaluación</dt>
+                            <dd class="col-sm-5 text-sm-end">@detection.WindowMinutes min</dd>
+                        </dl>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white">
+                <strong>Top IPs sospechosas</strong>
+            </div>
+            <div class="card-body p-0">
+                <table class="table table-striped mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>IP</th>
+                            <th class="text-end">Score</th>
+                            <th class="text-end">Anomalías</th>
+                            <th class="text-end">Solicitudes prom.</th>
+                            <th class="text-end">Error prom.</th>
+                            <th class="text-end">Última ventana</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @if (suspicious.Any())
+                        {
+                            foreach (var item in suspicious)
+                            {
+                                <tr>
+                                    <td>@item.IpAddress</td>
+                                    <td class="text-end fw-semibold text-danger">@item.LastScore.ToString("0.000")</td>
+                                    <td class="text-end">@item.TotalAnomalies</td>
+                                    <td class="text-end">@item.AverageRequestCount.ToString("0.0")</td>
+                                    <td class="text-end">@(item.AverageErrorRate * 100).ToString("0.0")%</td>
+                                    <td class="text-end">@item.WindowStartUtc.ToLocalTime().ToString("g")</td>
+                                </tr>
+                            }
+                        }
+                        else
+                        {
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4">No se han detectado IPs sospechosas.</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="card shadow-sm mb-4">
+            <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center">
+                <strong>Datos por IP (última evaluación)</strong>
+                <span class="text-muted small">Máximo 25 registros recientes</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-hover mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>IP</th>
+                                <th>Clasificación</th>
+                                <th class="text-end">Score</th>
+                                <th class="text-end">Solicitudes</th>
+                                <th class="text-end">Errores</th>
+                                <th class="text-end">Tasa error</th>
+                                <th class="text-end">Último status</th>
+                                <th class="text-end">Ventana</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (latestByIp.Any())
+                            {
+                                foreach (var item in latestByIp)
+                                {
+                                    var classification = item.IsAnomaly ? "Sospechosa" : "Normal";
+                                    var badgeClass = item.IsAnomaly ? "badge bg-danger" : "badge bg-success";
+                                    <tr>
+                                        <td>@item.IpAddress</td>
+                                        <td><span class="@badgeClass">@classification</span></td>
+                                        <td class="text-end">@item.Score.ToString("0.000")</td>
+                                        <td class="text-end">@item.RequestCount</td>
+                                        <td class="text-end">@item.ErrorCount</td>
+                                        <td class="text-end">@(item.ErrorRate * 100).ToString("0.0")%</td>
+                                        <td class="text-end">@item.LastStatusCode</td>
+                                        <td class="text-end">@item.WindowStartUtc.ToLocalTime().ToString("g")</td>
+                                    </tr>
+                                }
+                            }
+                            else
+                            {
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-4">Sin información disponible.</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-header bg-white d-flex flex-wrap justify-content-between align-items-center">
+                <strong>Detecciones recientes</strong>
+                <span class="text-muted small">Últimos 25 registros</span>
+            </div>
+            <div class="card-body p-0">
+                <div class="table-responsive">
+                    <table class="table table-striped mb-0">
+                        <thead class="table-dark">
+                            <tr>
+                                <th>Fecha detección</th>
+                                <th>IP</th>
+                                <th>Score</th>
+                                <th>Clasificación</th>
+                                <th class="text-end">Solicitudes</th>
+                                <th class="text-end">Errores</th>
+                                <th class="text-end">Tasa error</th>
+                                <th class="text-end">Ventana</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @if (recentDetections.Any())
+                            {
+                                foreach (var item in recentDetections)
+                                {
+                                    var classification = item.IsAnomaly ? "Sospechosa" : "Normal";
+                                    var badgeClass = item.IsAnomaly ? "badge bg-danger" : "badge bg-secondary";
+                                    <tr>
+                                        <td>@item.DetectedAtUtc.ToLocalTime().ToString("g")</td>
+                                        <td>@item.IpAddress</td>
+                                        <td>@item.Score.ToString("0.000")</td>
+                                        <td><span class="@badgeClass">@classification</span></td>
+                                        <td class="text-end">@item.RequestCount</td>
+                                        <td class="text-end">@item.ErrorCount</td>
+                                        <td class="text-end">@(item.ErrorRate * 100).ToString("0.0")%</td>
+                                        <td class="text-end">@item.WindowStartUtc.ToLocalTime().ToString("g")</td>
+                                    </tr>
+                                }
+                            }
+                            else
+                            {
+                                <tr>
+                                    <td colspan="8" class="text-center text-muted py-4">No se han registrado evaluaciones recientes.</td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
 }
 
-<!-- Chart.js por CDN -->
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 <script>
     (function () {
         const success = @success;
-        const failed  = @failed;
-        const labels  = @Html.Raw(labelsJson);
-        const counts  = @Html.Raw(countsJson);
+        const failed = @failed;
+        const endpointLabels = @Html.Raw(endpointLabelsJson);
+        const endpointCounts = @Html.Raw(endpointCountsJson);
+        const suspiciousLabels = @Html.Raw(suspiciousLabelsJson);
+        const suspiciousScores = @Html.Raw(suspiciousScoresJson);
 
         const ctx1 = document.getElementById('authDoughnut');
-        if (ctx1) {
+        if (ctx1 && (success + failed) > 0) {
             new Chart(ctx1, {
                 type: 'doughnut',
                 data: {
                     labels: ['Exitosos', 'Fallidos'],
-                    datasets: [{ data: [success, failed] }]
+                    datasets: [{ data: [success, failed], backgroundColor: ['#0d6efd', '#dc3545'] }]
                 },
                 options: {
                     responsive: true,
@@ -151,12 +398,12 @@ else
         }
 
         const ctx2 = document.getElementById('endpointsBar');
-        if (ctx2) {
+        if (ctx2 && endpointLabels.length > 0) {
             new Chart(ctx2, {
                 type: 'bar',
                 data: {
-                    labels: labels,
-                    datasets: [{ label: 'Requests', data: counts }]
+                    labels: endpointLabels,
+                    datasets: [{ label: 'Requests', data: endpointCounts, backgroundColor: '#198754' }]
                 },
                 options: {
                     responsive: true,
@@ -164,6 +411,25 @@ else
                     scales: {
                         x: { ticks: { autoSkip: false, maxRotation: 45, minRotation: 0 } },
                         y: { beginAtZero: true, ticks: { precision: 0 } }
+                    },
+                    plugins: { legend: { display: false } }
+                }
+            });
+        }
+
+        const ctx3 = document.getElementById('suspiciousBar');
+        if (ctx3 && suspiciousLabels.length > 0) {
+            new Chart(ctx3, {
+                type: 'bar',
+                data: {
+                    labels: suspiciousLabels,
+                    datasets: [{ label: 'Score', data: suspiciousScores, backgroundColor: '#dc3545' }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: { beginAtZero: true, suggestedMax: 1 }
                     },
                     plugins: { legend: { display: false } }
                 }

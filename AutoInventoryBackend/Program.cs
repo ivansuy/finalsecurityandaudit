@@ -1,6 +1,7 @@
 ﻿using AutoInventoryBackend.Data;
 using AutoInventoryBackend.Models;
 using AutoInventoryBackend.Services;
+using AutoInventoryBackend.Services.AnomalyDetection;
 using AutoInventoryBackend.Middleware;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
@@ -61,6 +62,9 @@ builder.Services.AddMemoryCache();
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddScoped<IJwtTokenService, JwtTokenService>();
 builder.Services.AddScoped<ILoginBackoffService, LoginBackoffService>();
+builder.Services.AddScoped<LoginMetricsService>();
+builder.Services.Configure<LoginAnomalyDetectionOptions>(builder.Configuration.GetSection("AnomalyDetection"));
+builder.Services.AddHostedService<LoginAnomalyDetectionWorker>();
 
 builder.Services.AddControllers();
 

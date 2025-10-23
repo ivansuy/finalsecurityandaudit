@@ -162,6 +162,75 @@ namespace AutoInventoryBackend.Migrations
                     b.ToTable("RequestLogs");
                 });
 
+            modelBuilder.Entity("AutoInventoryBackend.Models.LoginAnomalyDetection", b =>
+                {
+                    b.Property<long>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("Id"));
+
+                    b.Property<double?>("AvgElapsedMs")
+                        .HasColumnType("float");
+
+                    b.Property<double?>("AvgSecondsBetweenRequests")
+                        .HasColumnType("float");
+
+                    b.Property<DateTime>("DetectedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ErrorCount")
+                        .HasColumnType("int");
+
+                    b.Property<double>("ErrorRate")
+                        .HasColumnType("float");
+
+                    b.Property<bool>("IsAnomaly")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("IpAddress")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("LastStatusCode")
+                        .HasColumnType("int");
+
+                    b.Property<double?>("P95ElapsedMs")
+                        .HasColumnType("float");
+
+                    b.Property<int>("RequestCount")
+                        .HasColumnType("int");
+
+                    b.Property<double>("Score")
+                        .HasColumnType("float");
+
+                    b.Property<int>("ServerErrorCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SuccessCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UnauthorizedCount")
+                        .HasColumnType("int");
+
+                    b.Property<int>("UniqueUserCount")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("WindowEndUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("WindowStartUtc")
+                        .HasColumnType("datetime2");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WindowStartUtc", "IpAddress")
+                        .IsUnique();
+
+                    b.ToTable("LoginAnomalyDetections");
+                });
+
             modelBuilder.Entity("AutoInventoryBackend.Models.Vehicle", b =>
                 {
                     b.Property<int>("Id")
