@@ -11,11 +11,15 @@ namespace AutoInventoryBackend.Data
         public DbSet<Vehicle> Vehicles => Set<Vehicle>();
         public DbSet<AuthAttemptLog> AuthAttemptLogs => Set<AuthAttemptLog>();
         public DbSet<RequestLog> RequestLogs => Set<RequestLog>();
+        public DbSet<LoginAnomalyDetection> LoginAnomalyDetections => Set<LoginAnomalyDetection>();
 
         protected override void OnModelCreating(ModelBuilder builder)
         {
             base.OnModelCreating(builder);
             builder.Entity<Vehicle>().HasQueryFilter(v => !v.IsDeleted);
+            builder.Entity<LoginAnomalyDetection>()
+                .HasIndex(d => new { d.WindowStartUtc, d.IpAddress })
+                .IsUnique();
         }
     }
 }

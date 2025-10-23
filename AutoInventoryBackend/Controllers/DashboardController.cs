@@ -1,11 +1,11 @@
 using AutoInventoryBackend.Data;
 using AutoInventoryBackend.DTOs;
+using AutoInventoryBackend.Services;
+using AutoInventoryBackend.Services.AnomalyDetection;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using Microsoft.Extensions.Options;
 
 namespace AutoInventoryBackend.Controllers
 {
@@ -15,7 +15,15 @@ namespace AutoInventoryBackend.Controllers
     public class DashboardController : ControllerBase
     {
         private readonly AppDbContext _db;
-        public DashboardController(AppDbContext db) { _db = db; }
+        private readonly LoginMetricsService _loginMetricsService;
+        private readonly LoginAnomalyDetectionOptions _anomalyOptions;
+
+        public DashboardController(AppDbContext db, LoginMetricsService loginMetricsService, IOptions<LoginAnomalyDetectionOptions> anomalyOptions)
+        {
+            _db = db;
+            _loginMetricsService = loginMetricsService;
+            _anomalyOptions = anomalyOptions.Value;
+        }
 
         [HttpGet("summary")]
         public async Task<IActionResult> Summary()
@@ -50,27 +58,7 @@ namespace AutoInventoryBackend.Controllers
 
             var since = DateTime.UtcNow.AddMinutes(-minutes);
 
-            var logs = await _db.RequestLogs
-                .Where(r => r.Path == "/api/auth/login" && r.AtUtc >= since)
-                .OrderBy(r => r.IpAddress).ThenBy(r => r.AtUtc)
-                .Select(r => new RequestLogSnapshot(
-                    r.IpAddress,
-                    r.AtUtc,
-                    r.StatusCode,
-                    r.ElapsedMs,
-                    r.UserId))
-                .ToListAsync();
-
-            var windows = logs
-                .GroupBy(r => new
-                {
-                    r.IpAddress,
-                    WindowStart = new DateTime(r.AtUtc.Year, r.AtUtc.Month, r.AtUtc.Day, r.AtUtc.Hour, r.AtUtc.Minute, 0, DateTimeKind.Utc)
-                })
-                .Select(g => BuildWindowMetrics(g.Key.IpAddress, g.Key.WindowStart, g.OrderBy(x => x.AtUtc).ToList()))
-                .OrderByDescending(x => x.WindowStartUtc)
-                .ThenBy(x => x.Ip)
-                .ToList();
+            var windows = await _loginMetricsService.GetLoginWindowsAsync(since, DateTime.UtcNow, HttpContext.RequestAborted);
 
             return Ok(new
             {
@@ -81,71 +69,95 @@ namespace AutoInventoryBackend.Controllers
             });
         }
 
-        private static LoginMetricsWindowDto BuildWindowMetrics(string ip, DateTime windowStartUtc, List<RequestLogSnapshot> orderedLogs)
+        [HttpGet("anomalies")]
+        public async Task<IActionResult> LoginAnomalies([FromQuery] int hours = 24, [FromQuery] int maxRecords = 150)
         {
-            var requestCount = orderedLogs.Count;
-            var errorCount = orderedLogs.Count(l => l.StatusCode >= 400);
-            var errorRate = requestCount == 0 ? 0 : (double)errorCount / requestCount;
+            if (hours <= 0) hours = 24;
+            if (hours > 168) hours = 168;
+            if (maxRecords <= 0) maxRecords = 150;
+            if (maxRecords > 500) maxRecords = 500;
 
-            double? avgInterval = null;
-            if (orderedLogs.Count > 1)
-            {
-                var intervals = new List<double>(orderedLogs.Count - 1);
-                for (var i = 1; i < orderedLogs.Count; i++)
+            var since = DateTime.UtcNow.AddHours(-hours);
+
+            var detectionsQuery = _db.LoginAnomalyDetections
+                .Where(d => d.WindowStartUtc >= since)
+                .OrderByDescending(d => d.WindowStartUtc)
+                .ThenByDescending(d => d.Score)
+                .Take(maxRecords);
+
+            var detections = await detectionsQuery.ToListAsync();
+
+            var detectionDtos = detections
+                .Select(d => new LoginAnomalyDetectionDto
                 {
-                    var seconds = (orderedLogs[i].AtUtc - orderedLogs[i - 1].AtUtc).TotalSeconds;
-                    intervals.Add(seconds);
-                }
-                avgInterval = intervals.Average();
-            }
+                    IpAddress = d.IpAddress,
+                    WindowStartUtc = d.WindowStartUtc,
+                    WindowEndUtc = d.WindowEndUtc,
+                    DetectedAtUtc = d.DetectedAtUtc,
+                    Score = d.Score,
+                    IsAnomaly = d.IsAnomaly,
+                    RequestCount = d.RequestCount,
+                    ErrorCount = d.ErrorCount,
+                    ErrorRate = d.ErrorRate,
+                    AvgSecondsBetweenRequests = d.AvgSecondsBetweenRequests,
+                    AvgElapsedMs = d.AvgElapsedMs,
+                    P95ElapsedMs = d.P95ElapsedMs,
+                    UniqueUserCount = d.UniqueUserCount,
+                    LastStatusCode = d.LastStatusCode,
+                    SuccessCount = d.SuccessCount,
+                    UnauthorizedCount = d.UnauthorizedCount,
+                    ServerErrorCount = d.ServerErrorCount
+                })
+                .ToList();
 
-            double? avgElapsed = orderedLogs.Count > 0 ? orderedLogs.Average(l => (double)l.ElapsedMs) : null;
-            double? p95Elapsed = orderedLogs.Count > 0 ? CalculatePercentile(orderedLogs.Select(l => (double)l.ElapsedMs), 0.95) : null;
-
-            var statusBreakdown = orderedLogs
-                .GroupBy(l => l.StatusCode)
-                .ToDictionary(g => (int)g.Key, g => g.Count());
-
-            var uniqueUsers = orderedLogs
-                .Select(l => l.UserId)
-                .Where(id => !string.IsNullOrWhiteSpace(id))
-                .Distinct()
-                .Count();
-
-            return new LoginMetricsWindowDto
+            var summary = new LoginAnomalyDashboardSummaryDto
             {
-                Ip = ip,
-                WindowStartUtc = windowStartUtc,
-                WindowEndUtc = windowStartUtc.AddMinutes(1),
-                RequestCount = requestCount,
-                ErrorCount = errorCount,
-                ErrorRate = errorRate,
-                AvgSecondsBetweenRequests = avgInterval,
-                AvgElapsedMs = avgElapsed,
-                P95ElapsedMs = p95Elapsed,
-                UniqueUserCount = uniqueUsers,
-                StatusBreakdown = statusBreakdown,
-                LastStatusCode = orderedLogs.Last().StatusCode,
-                FirstRequestAtUtc = orderedLogs.First().AtUtc,
-                LastRequestAtUtc = orderedLogs.Last().AtUtc
+                TotalEvaluations = detectionDtos.Count,
+                TotalAnomalies = detectionDtos.Count(d => d.IsAnomaly),
+                TotalNormals = detectionDtos.Count(d => !d.IsAnomaly),
+                AnomalyRate = detectionDtos.Count == 0 ? 0 : (double)detectionDtos.Count(d => d.IsAnomaly) / detectionDtos.Count,
+                UniqueIpCount = detectionDtos.Select(d => d.IpAddress).Distinct().Count()
             };
+
+            var topSuspicious = detectionDtos
+                .Where(d => d.IsAnomaly)
+                .GroupBy(d => d.IpAddress)
+                .Select(g => new SuspiciousIpSummaryDto
+                {
+                    IpAddress = g.Key,
+                    LastScore = g.OrderByDescending(x => x.Score).First().Score,
+                    LastDetectedAtUtc = g.Max(x => x.DetectedAtUtc),
+                    WindowStartUtc = g.OrderByDescending(x => x.WindowStartUtc).First().WindowStartUtc,
+                    TotalAnomalies = g.Count(),
+                    TotalWindows = detectionDtos.Count(x => x.IpAddress == g.Key),
+                    AverageRequestCount = g.Average(x => x.RequestCount),
+                    AverageErrorRate = g.Average(x => x.ErrorRate),
+                    RecentRequestCount = g.OrderByDescending(x => x.WindowStartUtc).First().RequestCount,
+                    RecentErrorRate = g.OrderByDescending(x => x.WindowStartUtc).First().ErrorRate
+                })
+                .OrderByDescending(x => x.LastScore)
+                .ThenByDescending(x => x.TotalAnomalies)
+                .Take(10)
+                .ToList();
+
+            var latestByIp = detectionDtos
+                .GroupBy(d => d.IpAddress)
+                .Select(g => g.OrderByDescending(x => x.WindowStartUtc).ThenByDescending(x => x.Score).First())
+                .OrderByDescending(d => d.Score)
+                .ToList();
+
+            var dto = new LoginAnomalyDashboardDto
+            {
+                GeneratedAtUtc = DateTime.UtcNow,
+                WindowMinutes = Math.Max(1, _anomalyOptions.EvaluationWindowMinutes),
+                Threshold = _anomalyOptions.Threshold,
+                Summary = summary,
+                TopSuspiciousIps = topSuspicious,
+                RecentDetections = detectionDtos.OrderByDescending(d => d.DetectedAtUtc).Take(50).ToList(),
+                LatestByIp = latestByIp
+            };
+
+            return Ok(dto);
         }
-
-        private static double CalculatePercentile(IEnumerable<double> values, double percentile)
-        {
-            var list = values.OrderBy(v => v).ToList();
-            if (list.Count == 0) return 0;
-
-            var position = percentile * (list.Count - 1);
-            var lowerIndex = (int)Math.Floor(position);
-            var upperIndex = (int)Math.Ceiling(position);
-
-            if (lowerIndex == upperIndex) return list[lowerIndex];
-
-            var weight = position - lowerIndex;
-            return list[lowerIndex] + weight * (list[upperIndex] - list[lowerIndex]);
-        }
-
-        private record RequestLogSnapshot(string IpAddress, DateTime AtUtc, int StatusCode, long ElapsedMs, string? UserId);
     }
 }

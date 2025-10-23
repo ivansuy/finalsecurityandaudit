@@ -31,17 +31,24 @@ namespace Frontend.Controllers
 
         public async Task<IActionResult> Index()
         {
-            DashboardSummary? summary = null;
+            var viewModel = new DashboardViewModel();
+            var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
-            var response = await _http.GetAsync("api/dashboard/summary");
-            if (response.IsSuccessStatusCode)
+            var summaryResponse = await _http.GetAsync("api/dashboard/summary");
+            if (summaryResponse.IsSuccessStatusCode)
             {
-                var json = await response.Content.ReadAsStringAsync();
-                summary = JsonSerializer.Deserialize<DashboardSummary>(json,
-                    new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                var json = await summaryResponse.Content.ReadAsStringAsync();
+                viewModel.Summary = JsonSerializer.Deserialize<DashboardSummary>(json, options);
             }
 
-            return View(summary);
+            var detectionResponse = await _http.GetAsync("api/dashboard/anomalies");
+            if (detectionResponse.IsSuccessStatusCode)
+            {
+                var json = await detectionResponse.Content.ReadAsStringAsync();
+                viewModel.Detection = JsonSerializer.Deserialize<MlDetectionDashboard>(json, options);
+            }
+
+            return View(viewModel);
         }
     }
 }
